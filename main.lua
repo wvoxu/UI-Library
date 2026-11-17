@@ -490,6 +490,7 @@ function FeatherLite:Window(opts)
         Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     })
     local popScale = make("UIScale", { Parent = body })
+    Window.Frame = body -- the visible window frame (scripts can use it to check if the cursor is over the window)
     local shadow = make("ImageLabel", {
         Parent = body, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 3),
         Size = UDim2.new(1, 40, 1, 40), BackgroundTransparency = 1, Image = SHADOW,
@@ -2456,4 +2457,5 @@ function FeatherLite:Window(opts)
     table.insert(registry, Window)
     return Window
 end
+
 return FeatherLite
