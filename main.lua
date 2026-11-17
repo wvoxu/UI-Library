@@ -416,6 +416,11 @@ function FeatherLite:Window(opts)
     local userScale = tonumber(prefs.Scale) or 1
     local menuKey = toKey(prefs.MenuKey) or opts.Key or Enum.KeyCode.RightShift
     local notifyOn = prefs.Notifications ~= false
+    -- configs: autosave keeps the active config up to date, autoload loads it when the script starts
+    local autoSave = prefs.AutoSave ~= false
+    local autoLoad = prefs.AutoLoad ~= false
+    local activeConfig = (type(prefs.Config) == "string" and prefs.Config ~= "") and prefs.Config or "Default"
+    local autoSaveHalt = false
     local lastBuild = os.clock()
     local listening
 
@@ -456,6 +461,7 @@ function FeatherLite:Window(opts)
         FS.write(folder .. "/settings.json", HttpService:JSONEncode({
             Theme = themeName, Transparency = alpha, Scale = userScale,
             MenuKey = menuKey.Name, Notifications = notifyOn, Float = prefs.Float,
+            AutoSave = autoSave, AutoLoad = autoLoad, Config = activeConfig,
         }))
     end
 
@@ -632,14 +638,15 @@ function FeatherLite:Window(opts)
         tw(brandScale, 0.3, { Scale = 1 })
         tw(brandMark, 0.4, { Rotation = 0 })
     end)
-    T(make("TextLabel", {
+    local brandTitle = T(make("TextLabel", {
         Parent = sidebar, Position = UDim2.fromOffset(48, 18), Size = UDim2.new(1, -62, 0, 20),
         BackgroundTransparency = 1, Text = title, FontFace = FONTS.SerifBold, TextSize = 15, Visible = not MOBILE,
         TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4,
     }), { TextColor3 = "SideText" })
     local searchY = 52
+    local brandSub
     if subtitle then
-        T(make("TextLabel", {
+        brandSub = T(make("TextLabel", {
             Parent = sidebar, Position = UDim2.fromOffset(48, 38), Size = UDim2.new(1, -62, 0, 14),
             BackgroundTransparency = 1, Text = "\226\128\148  " .. string.upper(subtitle), FontFace = FONTS.Medium, TextSize = 11, Visible = not MOBILE,
             TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4,
@@ -2190,15 +2197,33 @@ function FeatherLite:Window(opts)
         applyAlpha()
     end
 
-    function Window:SaveConfig(name)
-        name = tostring(name or ""):gsub("[^%w%-_ ]", "")
-        if name == "" then return false end
+    local function collectConfig()
         local data = { flags = {}, binds = {} }
         for flag, el in pairs(Window.Flags) do
             if el.Get then data.flags[flag] = encode(el:Get()) end
             if el.GetBind then data.binds[flag] = encode(el:GetBind()) end
         end
-        FS.write(configDir .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+        return data
+    end
+
+    -- same settings always give the same text, so autosave can tell when something changed
+    local function stable(v)
+        if type(v) == "table" then
+            local items = {}
+            for k, x in pairs(v) do table.insert(items, { tostring(k), x }) end
+            table.sort(items, function(a, b) return a[1] < b[1] end)
+            local out = {}
+            for _, it in ipairs(items) do table.insert(out, it[1] .. "=" .. stable(it[2])) end
+            return "{" .. table.concat(out, ",") .. "}"
+        end
+        return tostring(v)
+    end
+    local function configSnapshot() return stable(collectConfig()) end
+
+    function Window:SaveConfig(name)
+        name = tostring(name or ""):gsub("[^%w%-_ ]", "")
+        if name == "" then return false end
+        FS.write(configDir .. "/" .. name .. ".json", HttpService:JSONEncode(collectConfig()))
         return true
     end
 
@@ -2222,6 +2247,7 @@ function FeatherLite:Window(opts)
 
     function Window:Unload(instant)
         if not alive then return end
+        autoSaveHalt = true -- unloading turns toggles off; don't save that
         for _, t in ipairs(toggles) do
             if t:Get() then t:Set(false) end
         end
@@ -2300,6 +2326,25 @@ function FeatherLite:Window(opts)
             end
         end)
         pageTitle.Size = UDim2.new(1, -(60 + CLOSE * 2 + 6), 1, -4)
+
+        -- no sidebar, so the logo, title and credit live in the header instead of the page title
+        pageTitle.Visible = false
+        brandMark.Parent = header
+        brandMark.Position = UDim2.fromOffset(20, subtitle and 15 or 17)
+        brandTitle.Parent = header
+        brandTitle.Position = UDim2.fromOffset(54, subtitle and 9 or 14)
+        brandTitle.Size = UDim2.new(1, -(54 + CLOSE * 2 + 40), 0, 22)
+        brandTitle.TextSize = 18
+        brandTitle.Visible = true
+        T(brandTitle, { TextColor3 = "Text" })
+        if brandSub then
+            brandSub.Parent = header
+            brandSub.Position = UDim2.fromOffset(54, 32)
+            brandSub.Size = UDim2.new(1, -(54 + CLOSE * 2 + 40), 0, 14)
+            brandSub.Visible = true
+        end
+        local logoText = brandMark:FindFirstChildOfClass("TextLabel")
+        if logoText then T(logoText, { TextColor3 = "Accent" }) end
     end
 
     local appearance = settingsTab:Group("Appearance")
@@ -2349,17 +2394,23 @@ function FeatherLite:Window(opts)
     -- unload shouldnt turn notifications off
     table.remove(toggles, #toggles)
 
-    local configs = settingsTab:Group({ Name = "Configs", Description = "Configs save every setting of the script (not these menu settings)." })
+    local configs = settingsTab:Group({ Name = "Configs", Description = "Autosave keeps the selected config up to date and Autoload loads it when the script starts. Menu settings are separate." })
     local cfgName = configs:Input({ Name = "Name", Placeholder = "my config" })
-    local cfgList = configs:Dropdown({ Name = "Saved configs", Options = Window:ListConfigs() })
-    local autoFile = folder .. "/autoload.txt"
+    local function configNames()
+        local names = Window:ListConfigs()
+        if not table.find(names, activeConfig) then table.insert(names, 1, activeConfig) end
+        return names
+    end
+    local cfgList = configs:Dropdown({ Name = "Saved configs", Options = configNames(), Default = activeConfig })
     configs:Button({
         Name = "Save",
         Callback = function()
             local name = cfgName:Get() ~= "" and cfgName:Get() or cfgList:Get()
             if Window:SaveConfig(name) then
-                cfgList:SetOptions(Window:ListConfigs(), true)
+                cfgList:SetOptions(configNames(), true)
                 cfgList:Set(name, true)
+                activeConfig = name
+                savePrefs()
                 Window:Notify({ Title = "Config saved", Text = tostring(name) })
             else
                 Window:Notify({ Title = "Type a name first" })
@@ -2371,6 +2422,8 @@ function FeatherLite:Window(opts)
         Callback = function()
             local name = cfgList:Get()
             if name and Window:LoadConfig(name) then
+                activeConfig = name
+                savePrefs()
                 Window:Notify({ Title = "Config loaded", Text = name })
             else
                 Window:Notify({ Title = "Pick a saved config first" })
@@ -2385,26 +2438,51 @@ function FeatherLite:Window(opts)
             Window:Dialog({
                 Title = "Delete " .. name .. "?",
                 Buttons = { { Text = "Cancel" }, { Text = "Delete", Danger = true, Callback = function()
-                    FS.delete(configDir .. "/" .. name .. ".json")
-                    cfgList:SetOptions(Window:ListConfigs())
+                    local path = configDir .. "/" .. name .. ".json"
+                    FS.delete(path)
+                    if FS.read(path) ~= nil then
+                        Window:Notify({ Title = "Couldn't delete", Text = "Your executor can't delete files (no delfile)." })
+                        return
+                    end
+                    if name == activeConfig then
+                        -- the deleted one was the selected one: move to another, or start a fresh Default
+                        local rest = Window:ListConfigs()
+                        activeConfig = rest[1] or "Default"
+                        if not rest[1] then Window:SaveConfig(activeConfig) end
+                        savePrefs()
+                    end
+                    cfgList:SetOptions(configNames())
+                    cfgList:Set(activeConfig, true)
+                    Window:Notify({ Title = "Config deleted", Text = name })
                 end } },
             })
         end,
     })
-    local autoName = FS.read(autoFile)
     configs:Toggle({
-        Name = "Load on start", Description = "Loads the selected config the next time the script runs.",
-        Default = autoName ~= nil and autoName ~= "",
+        Name = "Autosave", Description = "Saves your changes to the selected config as you make them.",
+        Default = autoSave,
         Callback = function(v)
-            local name = cfgList:Get()
-            if v and name then
-                FS.write(autoFile, name)
-            elseif not v then
-                FS.write(autoFile, "")
-            end
+            autoSave = v
+            savePrefs()
         end,
     })
     table.remove(toggles, #toggles)
+    configs:Toggle({
+        Name = "Autoload", Description = "Loads the selected config when the script starts.",
+        Default = autoLoad,
+        Callback = function(v)
+            autoLoad = v
+            savePrefs()
+        end,
+    })
+    table.remove(toggles, #toggles)
+
+    -- Configs = false: scripts that save their own settings don't need this group
+    if opts.Configs == false then
+        for _, g in ipairs(settingsTab.groups) do
+            if g.name == "Configs" then g.frame.Visible = false end
+        end
+    end
 
     local script = settingsTab:Group("Script")
     script:Button({
@@ -2418,16 +2496,32 @@ function FeatherLite:Window(opts)
         end,
     })
 
-    -- waits until the script stops adding stuff, then loads the config. hacky but fine
-    if autoName and autoName ~= "" then
-        task.spawn(function()
-            while alive and os.clock() - lastBuild < 0.6 do task.wait(0.2) end
-            if alive and Window:LoadConfig(autoName) then
-                cfgList:Set(autoName, true)
-                Window:Notify({ Title = "Config loaded", Text = autoName })
+    -- waits until the script stops adding stuff, then loads the active config (Autoload), makes sure it
+    -- exists ("Default" the first time), and from then on writes changes back to it (Autosave)
+    task.spawn(function()
+        while alive and os.clock() - lastBuild < 0.6 do task.wait(0.2) end
+        if not alive then return end
+        local exists = FS.read(configDir .. "/" .. activeConfig .. ".json") ~= nil
+        if autoLoad and exists then
+            Window:LoadConfig(activeConfig)
+            task.wait(0.3)
+        end
+        local last = configSnapshot()
+        if not exists then
+            Window:SaveConfig(activeConfig)
+            cfgList:SetOptions(configNames(), true)
+        end
+        while alive and not autoSaveHalt do
+            task.wait(1.5)
+            if autoSave and alive and not autoSaveHalt then
+                local now = configSnapshot()
+                if now ~= last then
+                    last = now
+                    Window:SaveConfig(activeConfig)
+                end
             end
-        end)
-    end
+        end
+    end)
 
     task.spawn(function()
         if opts.Splash ~= false then
