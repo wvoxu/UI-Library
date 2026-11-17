@@ -1089,11 +1089,9 @@ function FeatherLite:Window(opts)
         elseif want == false and behavior == Enum.MouseBehavior.LockCenter then
             behavior = Enum.MouseBehavior.Default
         end
-        if behavior == Enum.MouseBehavior.Default then icon = true end
         UIS.MouseBehavior, UIS.MouseIconEnabled = behavior, icon
     end
-    -- Modal frees the mouse, but it also stops right-click camera dragging, so it's only switched on
-    -- while the camera has the mouse locked (first person / shift lock)
+    -- Modal frees the mouse while the menu is open (it's switched off while right mouse is held, see below)
     local modalBtn = make("TextButton", { Parent = root, Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Text = "", Modal = false, Selectable = false })
     on(RunService.RenderStepped, function()
         if visible then
@@ -1106,12 +1104,15 @@ function FeatherLite:Window(opts)
                 mouseSaved[1] = b
                 UIS.MouseBehavior = Enum.MouseBehavior.Default
             end
-            -- holding right mouse to turn the camera uses LockCurrentPosition: leave that alone
-            if not UIS.MouseIconEnabled and b ~= Enum.MouseBehavior.LockCurrentPosition then
+            -- only bring the cursor back when the camera had the mouse locked. Games that hide the real
+            -- cursor on purpose draw their own, and forcing the real one on gives you two
+            if not UIS.MouseIconEnabled and mouseSaved[1] == Enum.MouseBehavior.LockCenter then
                 mouseSaved[2] = false
                 UIS.MouseIconEnabled = true
             end
-            modalBtn.Modal = mouseSaved[1] == Enum.MouseBehavior.LockCenter
+            -- Modal is what keeps the normal cursor clean while the menu is open, but it blocks camera
+            -- turning, so it only drops while right mouse is held
+            modalBtn.Modal = not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
         elseif mouseSaved then
             modalBtn.Modal = false
             restoreMouse()
