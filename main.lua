@@ -1092,20 +1092,28 @@ function FeatherLite:Window(opts)
         if behavior == Enum.MouseBehavior.Default then icon = true end
         UIS.MouseBehavior, UIS.MouseIconEnabled = behavior, icon
     end
-    make("TextButton", { Parent = root, Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Text = "", Modal = true, Selectable = false })
+    -- Modal frees the mouse, but it also stops right-click camera dragging, so it's only switched on
+    -- while the camera has the mouse locked (first person / shift lock)
+    local modalBtn = make("TextButton", { Parent = root, Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Text = "", Modal = false, Selectable = false })
     on(RunService.RenderStepped, function()
         if visible then
-            if not mouseSaved then mouseSaved = { UIS.MouseBehavior, UIS.MouseIconEnabled } end
-            -- something locked or hid the mouse since last frame: that's what it wants after we close
-            if UIS.MouseBehavior ~= Enum.MouseBehavior.Default then
-                mouseSaved[1] = UIS.MouseBehavior
+            local b = UIS.MouseBehavior
+            if not mouseSaved then
+                mouseSaved = { b == Enum.MouseBehavior.LockCenter and b or Enum.MouseBehavior.Default, UIS.MouseIconEnabled }
+            end
+            -- something locked the mouse to the centre since last frame: that's what it wants after we close
+            if b == Enum.MouseBehavior.LockCenter then
+                mouseSaved[1] = b
                 UIS.MouseBehavior = Enum.MouseBehavior.Default
             end
-            if not UIS.MouseIconEnabled then
+            -- holding right mouse to turn the camera uses LockCurrentPosition: leave that alone
+            if not UIS.MouseIconEnabled and b ~= Enum.MouseBehavior.LockCurrentPosition then
                 mouseSaved[2] = false
                 UIS.MouseIconEnabled = true
             end
+            modalBtn.Modal = mouseSaved[1] == Enum.MouseBehavior.LockCenter
         elseif mouseSaved then
+            modalBtn.Modal = false
             restoreMouse()
         end
     end)
