@@ -475,7 +475,16 @@ function FeatherLite:Window(opts)
     if MOBILE then
         SIDEBAR_W = 66
         MIN_W, MIN_H = 360, 240
+    else
+        -- small windows: opts.MinSize lowers the minimum window size, opts.SidebarWidth narrows the sidebar
+        if typeof(opts.MinSize) == "Vector2" then MIN_W, MIN_H = opts.MinSize.X, opts.MinSize.Y end
+        if tonumber(opts.SidebarWidth) then SIDEBAR_W = math.floor(tonumber(opts.SidebarWidth)) end
+        -- Compact = true: no sidebar at all (for tiny one-page scripts). A gear button in the header
+        -- opens Settings instead, and the window can't be resized.
+        if opts.Compact == true then SIDEBAR_W = 0 end
     end
+    local COMPACT = opts.Compact == true and not MOBILE
+    local SHOW_SEARCH = opts.Search ~= false -- Search = false hides the search box (handy for one-page scripts)
     local userSized = false
     local ROW_H = MOBILE and 46 or 36
 
@@ -568,6 +577,7 @@ function FeatherLite:Window(opts)
         Name = "Sidebar", Parent = main, Size = UDim2.new(0, SIDEBAR_W, 1, 0), BorderSizePixel = 0, ZIndex = 2,
     }, { corner(12) })
     T(sidebar, { BackgroundColor3 = "Sidebar" })
+    if COMPACT then sidebar.Visible = false end
     local sidebarFill = make("Frame", {
         Parent = sidebar, Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0, 12, 1, 0), BorderSizePixel = 0,
     })
@@ -639,7 +649,7 @@ function FeatherLite:Window(opts)
 
     local searchField = make("Frame", {
         Parent = sidebar, Position = UDim2.fromOffset(12, searchY), Size = UDim2.new(1, -24, 0, 34), ZIndex = 4,
-        Visible = not MOBILE,
+        Visible = not MOBILE and SHOW_SEARCH,
     }, { corner(8) })
     T(searchField, { BackgroundColor3 = "SideField" })
     local searchStroke = T(make("UIStroke", { Parent = searchField, Transparency = 1, Thickness = 1.5 }), { Color = "Accent" })
@@ -657,8 +667,8 @@ function FeatherLite:Window(opts)
     on(searchBox.FocusLost, function() tw(searchStroke, 0.25, { Transparency = 1 }) end)
 
     local tabScroll = make("ScrollingFrame", {
-        Parent = sidebar, Position = UDim2.fromOffset(0, MOBILE and 58 or searchY + 46),
-        Size = UDim2.new(1, 0, 1, -(MOBILE and 58 or searchY + 46) - (MOBILE and 66 or 58)),
+        Parent = sidebar, Position = UDim2.fromOffset(0, MOBILE and 58 or (SHOW_SEARCH and searchY + 46 or searchY)),
+        Size = UDim2.new(1, 0, 1, -(MOBILE and 58 or (SHOW_SEARCH and searchY + 46 or searchY)) - (MOBILE and 66 or 58)),
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(),
         AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 4,
     })
@@ -727,6 +737,7 @@ function FeatherLite:Window(opts)
         Parent = content, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -3, 1, -3),
         Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 1, Text = "", ZIndex = 6,
     })
+    if COMPACT then grip.Visible = false end
     for i, len in ipairs({ 11, 6 }) do
         T(make("Frame", {
             Parent = grip, AnchorPoint = Vector2.new(0.5, 0.5),
@@ -2264,6 +2275,31 @@ function FeatherLite:Window(opts)
             tw(gearScale, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
             selectTab(settingsTab)
         end)
+    end
+
+    if COMPACT then
+        -- gear button in the header: toggles between the page and Settings
+        local lastTab
+        local gearBtn = make("ImageButton", {
+            Parent = header, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -(18 + CLOSE + 6), 0.5, 2),
+            Size = UDim2.fromOffset(CLOSE, CLOSE), BackgroundTransparency = 1, Image = iconFor("Settings"),
+            ScaleType = Enum.ScaleType.Fit, AutoButtonColor = false, ZIndex = 6,
+        }, { pad(8, 8, 8, 8) })
+        T(gearBtn, { ImageColor3 = "SubText" })
+        local spin = 0
+        on(gearBtn.MouseEnter, function()
+            spin = spin + 90
+            tw(gearBtn, 0.5, { Rotation = spin }, Enum.EasingStyle.Back)
+        end)
+        on(gearBtn.MouseButton1Click, function()
+            if current == settingsTab then
+                if lastTab then selectTab(lastTab) end
+            else
+                lastTab = current
+                selectTab(settingsTab)
+            end
+        end)
+        pageTitle.Size = UDim2.new(1, -(60 + CLOSE * 2 + 6), 1, -4)
     end
 
     local appearance = settingsTab:Group("Appearance")
