@@ -1119,7 +1119,8 @@ function FeatherLite:Window(opts)
                 -- cursor does its thing (that one would sit under the window), so you never see two
                 local m = UIS:GetMouseLocation() - GuiService:GetGuiInset()
                 local bp, bs = body.AbsolutePosition, body.AbsoluteSize
-                local over = m.X >= bp.X and m.X <= bp.X + bs.X and m.Y >= bp.Y and m.Y <= bp.Y + bs.Y
+                local EDGE = 10 -- takes over a little before the edge so the game's cursor doesn't slide under the window
+                local over = m.X >= bp.X - EDGE and m.X <= bp.X + bs.X + EDGE and m.Y >= bp.Y - EDGE and m.Y <= bp.Y + bs.Y + EDGE
                 if over then
                     if not iconOver then mouseSaved[2] = UIS.MouseIconEnabled end
                     UIS.MouseIconEnabled = true
