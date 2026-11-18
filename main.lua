@@ -20,6 +20,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
@@ -421,6 +422,7 @@ function FeatherLite:Window(opts)
     local autoLoad = prefs.AutoLoad ~= false
     local activeConfig = (type(prefs.Config) == "string" and prefs.Config ~= "") and prefs.Config or "Default"
     local autoSaveHalt = false
+    local forceCursor = prefs.ForceCursor ~= false -- show the real cursor while the menu is open (for games that hide it)
     local lastBuild = os.clock()
     local listening
 
@@ -461,7 +463,7 @@ function FeatherLite:Window(opts)
         FS.write(folder .. "/settings.json", HttpService:JSONEncode({
             Theme = themeName, Transparency = alpha, Scale = userScale,
             MenuKey = menuKey.Name, Notifications = notifyOn, Float = prefs.Float,
-            AutoSave = autoSave, AutoLoad = autoLoad, Config = activeConfig,
+            AutoSave = autoSave, AutoLoad = autoLoad, Config = activeConfig, ForceCursor = forceCursor,
         }))
     end
 
@@ -1089,11 +1091,10 @@ function FeatherLite:Window(opts)
         elseif want == false and behavior == Enum.MouseBehavior.LockCenter then
             behavior = Enum.MouseBehavior.Default
         end
-        if behavior == Enum.MouseBehavior.Default then icon = true end
         UIS.MouseBehavior, UIS.MouseIconEnabled = behavior, icon
     end
-    -- Modal frees the mouse, but it also stops right-click camera dragging, so it's only switched on
-    -- while the camera has the mouse locked (first person / shift lock)
+    -- Modal frees the mouse while the menu is open (it's switched off while right mouse is held, see below)
+    local iconOver = false
     local modalBtn = make("TextButton", { Parent = root, Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Text = "", Modal = false, Selectable = false })
     on(RunService.RenderStepped, function()
         if visible then
@@ -1106,12 +1107,30 @@ function FeatherLite:Window(opts)
                 mouseSaved[1] = b
                 UIS.MouseBehavior = Enum.MouseBehavior.Default
             end
-            -- holding right mouse to turn the camera uses LockCurrentPosition: leave that alone
-            if not UIS.MouseIconEnabled and b ~= Enum.MouseBehavior.LockCurrentPosition then
-                mouseSaved[2] = false
-                UIS.MouseIconEnabled = true
+            -- only bring the cursor back when the camera had the mouse locked. Games that hide the real
+            -- cursor on purpose draw their own, and forcing the real one on gives you two
+            if mouseSaved[1] == Enum.MouseBehavior.LockCenter then
+                if not UIS.MouseIconEnabled then
+                    mouseSaved[2] = false
+                    UIS.MouseIconEnabled = true
+                end
+            elseif forceCursor and b ~= Enum.MouseBehavior.LockCurrentPosition then
+                -- the real cursor only shows while the mouse is over this window. Outside it the game's own
+                -- cursor does its thing (that one would sit under the window), so you never see two
+                local m = UIS:GetMouseLocation() - GuiService:GetGuiInset()
+                local bp, bs = body.AbsolutePosition, body.AbsoluteSize
+                local over = m.X >= bp.X and m.X <= bp.X + bs.X and m.Y >= bp.Y and m.Y <= bp.Y + bs.Y
+                if over then
+                    if not iconOver then mouseSaved[2] = UIS.MouseIconEnabled end
+                    UIS.MouseIconEnabled = true
+                elseif iconOver then
+                    UIS.MouseIconEnabled = mouseSaved[2]
+                end
+                iconOver = over
             end
-            modalBtn.Modal = mouseSaved[1] == Enum.MouseBehavior.LockCenter
+            -- Modal is what keeps the normal cursor clean while the menu is open, but it blocks camera
+            -- turning, so it only drops while right mouse is held
+            modalBtn.Modal = not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
         elseif mouseSaved then
             modalBtn.Modal = false
             restoreMouse()
@@ -2400,6 +2419,15 @@ function FeatherLite:Window(opts)
         end,
     })
     -- unload shouldnt turn notifications off
+    table.remove(toggles, #toggles)
+    menu:Toggle({
+        Name = "Show cursor", Description = "Shows your real cursor while it's over this menu. For games that hide it and draw their own.",
+        Default = forceCursor,
+        Callback = function(v)
+            forceCursor = v
+            savePrefs()
+        end,
+    })
     table.remove(toggles, #toggles)
 
     local configs = settingsTab:Group({ Name = "Configs", Description = "Autosave keeps the selected config up to date and Autoload loads it when the script starts. Menu settings are separate." })
